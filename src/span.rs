@@ -38,34 +38,78 @@
 use crate::constants;
 use crate::error;
 use crate::{Error, ErrorKind, Result};
+
 use percent_encoding::percent_decode;
 use rustracing::carrier::{
     ExtractFromBinary, ExtractFromHttpHeader, ExtractFromTextMap, InjectToBinary,
     InjectToHttpHeader, InjectToTextMap, IterHttpHeaderFields, SetHttpHeaderField, TextMap,
 };
 use rustracing::sampler::BoxSampler;
+
 use std::fmt;
 use std::io::{Read, Write};
 use std::str::{self, FromStr};
 
+#[cfg(not(feature = "sync"))]
 /// Span.
-pub type Span = rustracing::span::Span<SpanContextState>;
+pub type Span =
+    rustracing::span::Span<SpanContextState, rustracing::span::AsyncSpanSender<SpanContextState>>;
 
+#[cfg(feature = "sync")]
+/// Span.
+pub type Span =
+    rustracing::span::Span<SpanContextState, rustracing::span::SyncSpanSender<SpanContextState>>;
+
+#[cfg(not(feature = "sync"))]
 /// Span handle.
-pub type SpanHandle = rustracing::span::SpanHandle<SpanContextState>;
+pub type SpanHandle = rustracing::span::SpanHandle<
+    SpanContextState,
+    rustracing::span::AsyncSpanSender<SpanContextState>,
+>;
+
+#[cfg(feature = "sync")]
+/// Span handle.
+pub type SpanHandle = rustracing::span::SpanHandle<
+    SpanContextState,
+    rustracing::span::SyncSpanSender<SpanContextState>,
+>;
 
 /// Finished span.
 pub type FinishedSpan = rustracing::span::FinishedSpan<SpanContextState>;
 
+#[cfg(not(feature = "sync"))]
 /// Span receiver.
-pub type SpanReceiver = rustracing::span::SpanReceiver<SpanContextState>;
+pub type SpanReceiver = rustracing::span::AsyncSpanReceiver<SpanContextState>;
 
+#[cfg(feature = "sync")]
+/// Span receiver.
+pub type SpanReceiver = rustracing::span::SyncSpanReceiver<SpanContextState>;
+
+#[cfg(not(feature = "sync"))]
 /// Sender of finished spans to the destination channel.
-pub type SpanSender = rustracing::span::SpanSender<SpanContextState>;
+pub type SpanSender = rustracing::span::AsyncSpanSender<SpanContextState>;
 
+#[cfg(feature = "sync")]
+/// Sender of finished spans to the destination channel.
+pub type SpanSender = rustracing::span::SyncSpanSender<SpanContextState>;
+
+#[cfg(not(feature = "sync"))]
 /// Options for starting a span.
-pub type StartSpanOptions<'a> =
-    rustracing::span::StartSpanOptions<'a, BoxSampler<SpanContextState>, SpanContextState>;
+pub type StartSpanOptions<'a> = rustracing::span::StartSpanOptions<
+    'a,
+    BoxSampler<SpanContextState>,
+    SpanContextState,
+    rustracing::span::AsyncSpanSender<SpanContextState>,
+>;
+
+#[cfg(feature = "sync")]
+/// Options for starting a span.
+pub type StartSpanOptions<'a> = rustracing::span::StartSpanOptions<
+    'a,
+    BoxSampler<SpanContextState>,
+    SpanContextState,
+    rustracing::span::SyncSpanSender<SpanContextState>,
+>;
 
 /// Candidate span for tracing.
 pub type CandidateSpan<'a> = rustracing::span::CandidateSpan<'a, SpanContextState>;
@@ -98,12 +142,14 @@ pub struct TraceId {
     pub high: u64,
     pub low: u64,
 }
+
 impl TraceId {
     /// Makes a randomly generated `TraceId`.
     pub fn new() -> Self {
         TraceId::default()
     }
 }
+
 impl Default for TraceId {
     /// Makes a randomly generated `TraceId`.
     fn default() -> Self {
@@ -113,6 +159,7 @@ impl Default for TraceId {
         }
     }
 }
+
 impl fmt::Display for TraceId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.high == 0 {
@@ -122,6 +169,7 @@ impl fmt::Display for TraceId {
         }
     }
 }
+
 impl FromStr for TraceId {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self> {
@@ -158,6 +206,7 @@ pub struct SpanContextStateBuilder {
     flags: u8,
     debug_id: String,
 }
+
 impl SpanContextStateBuilder {
     /// Makes a new `SpanContextStateBuilder` instance.
     pub fn new() -> Self {
@@ -206,6 +255,7 @@ impl SpanContextStateBuilder {
         }
     }
 }
+
 impl Default for SpanContextStateBuilder {
     fn default() -> Self {
         Self::new()
@@ -220,6 +270,7 @@ pub struct SpanContextState {
     flags: u8,
     debug_id: String,
 }
+
 impl SpanContextState {
     /// Returns the trace identifier of this span.
     pub fn trace_id(&self) -> TraceId {
@@ -270,6 +321,7 @@ impl SpanContextState {
         }
     }
 }
+
 impl fmt::Display for SpanContextState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let dummy_parent_id = 0;
@@ -280,6 +332,7 @@ impl fmt::Display for SpanContextState {
         )
     }
 }
+
 impl FromStr for SpanContextState {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self> {
@@ -305,6 +358,7 @@ impl FromStr for SpanContextState {
         })
     }
 }
+
 impl<'a> From<CandidateSpan<'a>> for SpanContextState {
     fn from(f: CandidateSpan<'a>) -> Self {
         if let Some(primary) = f.references().first() {
@@ -314,6 +368,7 @@ impl<'a> From<CandidateSpan<'a>> for SpanContextState {
         }
     }
 }
+
 impl<T: TextMap> InjectToTextMap<T> for SpanContextState {
     fn inject_to_text_map(context: &SpanContext, carrier: &mut T) -> Result<()> {
         // TODO: Support baggage items
@@ -324,6 +379,7 @@ impl<T: TextMap> InjectToTextMap<T> for SpanContextState {
         Ok(())
     }
 }
+
 impl<T: TextMap> ExtractFromTextMap<T> for SpanContextState {
     fn extract_from_text_map(carrier: &T) -> Result<Option<SpanContext>> {
         use std::collections::HashMap;
@@ -339,6 +395,7 @@ impl<T: TextMap> ExtractFromTextMap<T> for SpanContextState {
         track!(Self::extract_from_http_header(&map))
     }
 }
+
 impl<T> InjectToHttpHeader<T> for SpanContextState
 where
     T: SetHttpHeaderField,
@@ -352,6 +409,7 @@ where
         Ok(())
     }
 }
+
 impl<'a, T> ExtractFromHttpHeader<'a, T> for SpanContextState
 where
     T: IterHttpHeaderFields<'a>,
@@ -388,6 +446,7 @@ where
         }
     }
 }
+
 impl<T> InjectToBinary<T> for SpanContextState
 where
     T: Write,
@@ -415,6 +474,7 @@ where
         Ok(())
     }
 }
+
 impl<T> ExtractFromBinary<T> for SpanContextState
 where
     T: Read,
@@ -452,7 +512,7 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::Tracer;
+    use crate::SyncTracer;
     use rustracing::sampler::AllSampler;
     use std::collections::HashMap;
     use std::io::Cursor;
@@ -490,7 +550,7 @@ mod test {
     #[test]
     fn inject_to_text_map_works() -> TestResult {
         let (span_tx, _span_rx) = crossbeam_channel::bounded(10);
-        let tracer = Tracer::with_sender(AllSampler, span_tx);
+        let tracer = SyncTracer::with_sender(AllSampler, span_tx);
         let span = tracer.span("test").start();
         let context = track_assert_some!(span.context(), Failed);
 
@@ -550,7 +610,7 @@ mod test {
 
     #[test]
     fn inject_to_binary_works() -> TestResult {
-        let (tracer, _span_rx) = Tracer::new(AllSampler);
+        let (tracer, _span_rx) = SyncTracer::new(AllSampler);
         let parent_span = tracer.span("parent_span_test").start();
         let span = tracer
             .span("span_to_be_injected_test")
@@ -604,7 +664,7 @@ mod test {
         assert_eq!(context.state().flags(), 1);
 
         // make a span from this context
-        let (tracer, _span_rx) = Tracer::new(AllSampler);
+        let (tracer, _span_rx) = SyncTracer::new(AllSampler);
         tracer
             .span("test_from_spancontext")
             .child_of(&context)

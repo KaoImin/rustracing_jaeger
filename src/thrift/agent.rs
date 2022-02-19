@@ -14,6 +14,7 @@ pub struct EmitBatchNotification {
     /// `batch` argument.
     pub batch: Batch,
 }
+
 impl From<EmitBatchNotification> for Message {
     fn from(f: EmitBatchNotification) -> Self {
         Message::oneway("emitBatch", 0, Struct::from((Struct::from(f.batch),)))

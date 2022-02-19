@@ -32,7 +32,10 @@
 extern crate trackable;
 
 pub use self::span::Span;
-pub use self::tracer::Tracer;
+#[cfg(not(feature = "sync"))]
+pub use self::tracer::AsyncTracer;
+#[cfg(feature = "sync")]
+pub use self::tracer::SyncTracer;
 pub use rustracing::{Error, ErrorKind, Result};
 
 pub mod reporter;
@@ -46,14 +49,14 @@ mod tracer;
 #[cfg(test)]
 mod tests {
     use crate::reporter::JaegerCompactReporter;
-    use crate::Tracer;
+    use crate::SyncTracer;
     use rustracing::sampler::AllSampler;
     use rustracing::tag::Tag;
 
     #[test]
     fn it_works() {
         let (span_tx, span_rx) = crossbeam_channel::bounded(10);
-        let tracer = Tracer::with_sender(AllSampler, span_tx);
+        let tracer = SyncTracer::with_sender(AllSampler, span_tx);
         {
             let _span = tracer.span("it_works").start();
             // do something

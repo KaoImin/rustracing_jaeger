@@ -3,7 +3,8 @@
 //! [jaeger.thrift]: https://github.com/uber/jaeger-idl/blob/master/thrift/jaeger.thrift
 use crate::constants;
 use crate::span::{FinishedSpan, SpanReference};
-use std::time::{SystemTime, UNIX_EPOCH};
+
+use minstant::{Anchor, Instant};
 use thrift_codec::data::{Field, List, Struct};
 
 /// `TagKind` denotes the kind of a `Tag`'s value.
@@ -27,6 +28,7 @@ pub enum Tag {
     Long { key: String, value: i64 },
     Binary { key: String, value: Vec<u8> },
 }
+
 impl Tag {
     /// Returns the key of this tag.
     pub fn key(&self) -> &str {
@@ -50,6 +52,7 @@ impl Tag {
         }
     }
 }
+
 impl From<Tag> for Struct {
     fn from(f: Tag) -> Self {
         let mut fields = vec![Field::new(1, f.key()), Field::new(2, f.kind() as i32)];
@@ -63,6 +66,7 @@ impl From<Tag> for Struct {
         Struct::new(fields)
     }
 }
+
 impl<'a> From<&'a rustracing::tag::Tag> for Tag {
     fn from(f: &'a rustracing::tag::Tag) -> Self {
         use rustracing::tag::TagValue;
@@ -78,6 +82,7 @@ impl<'a> From<&'a rustracing::tag::Tag> for Tag {
         }
     }
 }
+
 impl<'a> From<&'a rustracing::log::LogField> for Tag {
     fn from(f: &'a rustracing::log::LogField) -> Self {
         Tag::String {
@@ -94,6 +99,7 @@ pub struct Log {
     pub timestamp: i64,
     pub fields: Vec<Tag>,
 }
+
 impl From<Log> for Struct {
     fn from(f: Log) -> Self {
         Struct::from((
@@ -102,10 +108,11 @@ impl From<Log> for Struct {
         ))
     }
 }
+
 impl<'a> From<&'a rustracing::log::Log> for Log {
     fn from(f: &'a rustracing::log::Log) -> Self {
         Log {
-            timestamp: elapsed(UNIX_EPOCH, f.time()),
+            timestamp: unix_micros(f.time()),
             fields: f.fields().iter().map(From::from).collect(),
         }
     }
@@ -128,11 +135,13 @@ pub struct SpanRef {
     pub trace_id_high: i64,
     pub span_id: i64,
 }
+
 impl From<SpanRef> for Struct {
     fn from(f: SpanRef) -> Self {
         Struct::from((f.kind as i32, f.trace_id_low, f.trace_id_high, f.span_id))
     }
 }
+
 impl<'a> From<&'a SpanReference> for SpanRef {
     fn from(f: &'a SpanReference) -> Self {
         let kind = if f.is_child_of() {
@@ -189,6 +198,7 @@ pub struct Span {
     /// Log list.
     pub logs: Vec<Log>,
 }
+
 impl From<Span> for Struct {
     fn from(f: Span) -> Self {
         let mut fields = Vec::with_capacity(11);
@@ -226,6 +236,7 @@ impl From<Span> for Struct {
         Struct::new(fields)
     }
 }
+
 impl<'a> From<&'a FinishedSpan> for Span {
     fn from(f: &'a FinishedSpan) -> Self {
         let state = f.context().state();
@@ -248,8 +259,11 @@ impl<'a> From<&'a FinishedSpan> for Span {
                 .map(From::from)
                 .collect(),
             flags: state.flags() as i32,
-            start_time: elapsed(UNIX_EPOCH, f.start_time()),
-            duration: elapsed(f.start_time(), f.finish_time()),
+            start_time: unix_micros(f.start_time()),
+            duration: f
+                .finish_time()
+                .saturating_duration_since(f.start_time())
+                .as_micros() as i64,
             tags: f.tags().iter().map(From::from).collect(),
             logs: f.logs().iter().map(From::from).collect(),
         };
@@ -263,13 +277,8 @@ impl<'a> From<&'a FinishedSpan> for Span {
     }
 }
 
-fn elapsed(start: SystemTime, finish: SystemTime) -> i64 {
-    if let Ok(d) = finish.duration_since(start) {
-        (d.as_secs() * 1_000_000 + u64::from(d.subsec_nanos()) / 1000) as i64
-    } else {
-        let d = start.duration_since(finish).expect("Never fails");
-        -((d.as_secs() * 1_000_000 + u64::from(d.subsec_nanos()) / 1000) as i64)
-    }
+fn unix_micros(inst: Instant) -> i64 {
+    (inst.as_unix_nanos(&Anchor::new()) / 1000) as i64
 }
 
 /// `Process` describes the traced process/service that emits spans.
@@ -281,6 +290,7 @@ pub struct Process {
     /// Tag list.
     pub tags: Vec<Tag>,
 }
+
 impl From<Process> for Struct {
     fn from(f: Process) -> Self {
         let tags = List::from(f.tags.into_iter().map(Struct::from).collect::<Vec<_>>());
@@ -299,6 +309,7 @@ pub struct Batch {
     pub process: Process,
     pub spans: Vec<Span>,
 }
+
 impl From<Batch> for Struct {
     fn from(f: Batch) -> Self {
         Struct::from((

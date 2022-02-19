@@ -14,17 +14,24 @@ edition = "2018"
 coveralls = {repository = "sile/rustracing"}
 
 [dependencies]
+beef = "0.5"
 crossbeam-channel = "0.5"
-hostname = "0.3.0"
-percent-encoding = "2.1.0"
+hostname = "0.3"
+minstant = "0.1"
+percent-encoding = "2.1"
 rand = "0.8.3"
-rustracing = "0.5.0"
-thrift_codec = "0.1.1"
-trackable = "0.2.23"
+rustracing = { git = "https://github.com/KaoImin/rustracing.git", branch = "main" }
+thrift_codec = "0.1"
+trackable = "1.2"
 
 [dev-dependencies]
 bytecodec = "0.4"
 fibers_global = "0.1"
-fibers_http_server = "0.1"
-futures = "0.1"
+fibers_http_server = "0.2"
+futures = "0.3"
 httpcodec = "0.2"
+tokio = { version = "1.17", features = ["sync"] }
+
+[features]
+default = []
+sync = []

@@ -6,14 +6,17 @@ use crate::error;
 use crate::span::FinishedSpan;
 use crate::thrift::{agent, jaeger};
 use crate::Result;
+
 use rustracing::tag::Tag;
-use std::net::{SocketAddr, UdpSocket};
 use thrift_codec::message::Message;
 use thrift_codec::{BinaryEncode, CompactEncode};
+
+use std::net::{SocketAddr, UdpSocket};
 
 /// Reporter for the agent which accepts jaeger.thrift over compact thrift protocol.
 #[derive(Debug)]
 pub struct JaegerCompactReporter(JaegerReporter);
+
 impl JaegerCompactReporter {
     /// Makes a new `JaegerCompactReporter` instance.
     ///
@@ -70,6 +73,7 @@ impl JaegerCompactReporter {
 /// Reporter for the agent which accepts jaeger.thrift over binary thrift protocol.
 #[derive(Debug)]
 pub struct JaegerBinaryReporter(JaegerReporter);
+
 impl JaegerBinaryReporter {
     /// Makes a new `JaegerBinaryReporter` instance.
     ///
@@ -129,6 +133,7 @@ struct JaegerReporter {
     agent: SocketAddr,
     process: jaeger::Process,
 }
+
 impl JaegerReporter {
     fn new(service_name: &str, port: u16) -> Result<Self> {
         let agent = SocketAddr::from(([127, 0, 0, 1], port));
@@ -149,21 +154,27 @@ impl JaegerReporter {
             constants::JAEGER_CLIENT_VERSION_TAG_KEY,
             constants::JAEGER_CLIENT_VERSION,
         ));
+
         if let Ok(Ok(hostname)) = hostname::get().map(|h| h.into_string()) {
             this.add_service_tag(Tag::new(constants::TRACER_HOSTNAME_TAG_KEY, hostname));
         }
+
         Ok(this)
     }
+
     fn set_agent_addr(&mut self, addr: SocketAddr) {
         self.agent = addr;
     }
+
     fn set_reporter_addr(&mut self, addr: SocketAddr) -> Result<()> {
         self.socket = track!(UdpSocket::bind(addr).map_err(error::from_io_error))?;
         Ok(())
     }
+
     fn add_service_tag(&mut self, tag: Tag) {
         self.process.tags.push((&tag).into());
     }
+
     fn report<F>(&self, spans: &[FinishedSpan], encode: F) -> Result<()>
     where
         F: FnOnce(Message) -> Result<Vec<u8>>,
